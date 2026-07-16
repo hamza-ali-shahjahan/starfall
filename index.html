@@ -12,7 +12,7 @@
   <header id="bar">
     <div class="brand">✦ starfall</div>
     <div id="live-badge" class="badge offline">● CONNECTING</div>
-    <button id="token-chip" hidden>add a token for exact counts <span id="token-chip-x" title="dismiss">×</span></button>
+    <button id="token-chip" hidden>add a token for live extras <span id="token-chip-x" title="dismiss">×</span></button>
     <div id="searchbox">
       <input id="search" type="search" placeholder="search any repo…" autocomplete="off" spellcheck="false" />
       <div id="search-results" hidden></div>
@@ -104,9 +104,10 @@
     <form method="dialog">
       <h3>GitHub token</h3>
       <p class="muted">
-        Paste a fine-grained personal access token with <b>Public repositories (read-only)</b> access.
-        It is stored only in this browser's localStorage and sent only to api.github.com.
-        Without a token the app still works, but polls slowly and can't compute exact daily counts.
+        Optional — everything works without one. A fine-grained personal access token with
+        <b>Public repositories (read-only)</b> access unlocks the live extras: 5-second event
+        polling, your own constellation, and instant exact counts. It is stored only in this
+        browser's localStorage and sent only to api.github.com.
       </p>
       <input id="token-input" type="password" placeholder="github_pat_… or ghp_…" autocomplete="off" />
       <div class="row">

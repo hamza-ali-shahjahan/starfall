@@ -75,17 +75,62 @@ const ago = (iso) => {
 }
 
 // ---------- views ----------
+const SNAPSHOT_URL = 'https://raw.githubusercontent.com/hamza-ali-shahjahan/starfall/data/today.json'
+
 const trend = {
   view: 'auto',
   lang: '',
   period: '7',
   customDate: '',
   today: new Map(),
+  todayLive: false, // true once computed with the viewer's own token
+  snapshotAt: null,
   week: [],
   alltime: [],
   weekFetched: 0,
   alltimeFetched: 0,
   refreshing: false,
+}
+
+// Collector snapshot: exact counts for everyone, no token needed.
+let tickerSeeded = false
+async function loadSnapshot() {
+  try {
+    const res = await fetch(`${SNAPSHOT_URL}?t=${Math.floor(Date.now() / 300_000)}`)
+    if (!res.ok) return
+    const snap = await res.json()
+    if (!snap.rows?.length || snap.since.slice(0, 10) !== state.date) return
+    if (trend.todayLive) return // viewer's own live computation is fresher
+    const map = new Map()
+    for (const r of snap.rows) {
+      map.set(r.full, {
+        count: r.count, capped: !!r.capped, pending: false,
+        total: r.total, lang: r.lang || '', desc: r.desc || '',
+      })
+      const m = state.meta.get(r.full)
+      if (!m || !m.topics?.length)
+        state.meta.set(r.full, {
+          desc: r.desc || '', lang: r.lang || '', langColor: r.langColor || '',
+          stars: r.total, topics: r.topics || [], fetchedAt: Date.now(),
+        })
+    }
+    trend.today = map
+    trend.snapshotAt = snap.generatedAt
+    if (!tickerSeeded && snap.recentEvents?.length) {
+      tickerSeeded = true
+      for (const e of snap.recentEvents.slice(0, 10).reverse())
+        pushTicker({ repo: { name: e.repo }, actor: { login: e.actor } })
+    }
+    renderView()
+    renderTopics()
+  } catch {}
+}
+
+async function snapshotLoop() {
+  while (true) {
+    await loadSnapshot()
+    await sleep(5 * 60_000)
+  }
 }
 
 function risingSince() {
@@ -143,7 +188,9 @@ function renderBoard(rows) {
   $('board-title').textContent = VIEW_TITLE[trend.view]
   $('board-sub').textContent =
     trend.view === 'auto' && !getToken()
-      ? 'candidates only — add a token (⚙) for exact daily counts'
+      ? trend.snapshotAt
+        ? `exact counts since 00:00 UTC · snapshot ${ago(trend.snapshotAt)}`
+        : 'candidates only — first snapshot loading…'
       : viewSub()
   $('board').innerHTML = rows
     .map((r, i) => {
@@ -223,8 +270,8 @@ function renderLegend() {
       .join('') +
     (yours ? `<span class="lg-lang"><span class="lang-dot" style="--c:var(--gold)"></span>yours <em>${yours}</em></span>` : '')
   $('legend-note').textContent =
-    !getToken() && trend.view === 'auto'
-      ? 'counts show — without a token · click ⚙ to add one'
+    !getToken() && trend.view === 'auto' && !trend.snapshotAt
+      ? 'counts show — until the first snapshot arrives'
       : ''
 }
 
@@ -267,10 +314,14 @@ async function refreshToday() {
       ]),
     ].slice(0, 80)
     if (!getToken()) {
-      trend.today = new Map(
-        [...freshNew, ...oss].map((r) => [r.full, { count: null, lang: r.lang, desc: r.desc }]),
-      )
-      if (trend.view === 'auto') renderView()
+      // snapshot (loadSnapshot) is the tokenless data source; only fall back
+      // to a bare candidate list if no snapshot has arrived at all
+      if (trend.today.size === 0) {
+        trend.today = new Map(
+          [...freshNew, ...oss].map((r) => [r.full, { count: null, lang: r.lang, desc: r.desc }]),
+        )
+        if (trend.view === 'auto') renderView()
+      }
       return
     }
     if (rateRemaining !== null && rateRemaining < 800) return
@@ -293,6 +344,7 @@ async function refreshToday() {
         })
     }
     trend.today = map
+    trend.todayLive = true
     if (trend.view === 'auto') renderView()
     let pageBudget = 120
     const deep = Object.entries(results)
@@ -368,13 +420,20 @@ $('board-toggle').addEventListener('click', () => {
 
 // ---------- topics ----------
 function renderTopics() {
-  const tc = topicCounts()
+  // derive from whichever today-board has data (snapshot or live observation)
+  let tc
+  if (trend.today.size > 0) {
+    const counts = new Map()
+    for (const full of trend.today.keys())
+      for (const t of state.meta.get(full)?.topics || []) counts.set(t, (counts.get(t) || 0) + 1)
+    tc = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 30)
+  } else tc = topicCounts()
   $('topics').innerHTML = tc.length
     ? tc
         .slice(0, 18)
         .map(([t, n], i) => `<span class="topic${i < 3 ? ' hot' : ''}">#${esc(t)}<span class="n">${n}</span></span>`)
         .join('')
-    : `<span class="muted">${getToken() ? 'collecting…' : 'add a token to see topics'}</span>`
+    : `<span class="muted">collecting…</span>`
 }
 
 // ---------- hovercard ----------
@@ -589,9 +648,12 @@ async function tick() {
   try {
     if (maybeRollover()) {
       trend.today.clear()
+      trend.todayLive = false
+      trend.snapshotAt = null
       renderView()
       renderTopics()
       refreshToday()
+      loadSnapshot()
     }
     const { events, notModified } = await pollEvents()
     setBadge('live')
@@ -704,16 +766,13 @@ function boot() {
   renderClock()
   renderView()
   renderTopics()
-  $('ticker').innerHTML = `<div class="ev placeholder">listening for star events…${getToken() ? '' : ' (no token · polls every 60s)'}</div>`
-  if (!getToken() && !localStorage.getItem('starfall.seen')) {
-    $('settings').showModal()
-    localStorage.setItem('starfall.seen', '1')
-  }
+  $('ticker').innerHTML = `<div class="ev placeholder">listening for star events…</div>`
   updateTokenChip()
   tick()
   enrichLoop()
   mineLoop()
   refreshTodayLoop()
+  snapshotLoop()
 }
 boot()
 
