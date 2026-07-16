@@ -98,6 +98,8 @@ export function createGalaxy(canvas, { onHover, onClick, rightGutter = () => 20,
 
   const perf = () => performance.now()
   let last = perf()
+  let cachedRects = []
+  let lastRectRefresh = 0
 
   function step(dt) {
     if (!W || !H) {
@@ -122,6 +124,27 @@ export function createGalaxy(canvas, { onHover, onClick, rightGutter = () => 20,
           b.vx += dx * f; b.vy += dy * f
         }
       }
+    // soft repulsion out of DOM panel zones (legend, detail) so stars stay clickable
+    if (perf() - lastRectRefresh > 500) {
+      cachedRects = reservedRects()
+      lastRectRefresh = perf()
+    }
+    for (const n of arr)
+      for (const r of cachedRects) {
+        if (n.x < r.x - n.r || n.x > r.x + r.w + n.r || n.y < r.y - n.r || n.y > r.y + r.h + n.r)
+          continue
+        const exitRight = r.x + r.w + n.r - n.x
+        const exitLeft = n.x - (r.x - n.r)
+        const exitDown = r.y + r.h + n.r - n.y
+        const exitUp = n.y - (r.y - n.r)
+        const min = Math.min(exitLeft, exitRight, exitUp, exitDown)
+        const push = 0.08 * dt
+        if (min === exitRight) n.vx += push
+        else if (min === exitLeft) n.vx -= push
+        else if (min === exitDown) n.vy += push
+        else n.vy -= push
+      }
+
     const gutter = rightGutter()
     for (const n of arr) {
       n.vx *= 0.86; n.vy *= 0.86
