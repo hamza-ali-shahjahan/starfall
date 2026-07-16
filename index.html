@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>starfall — the GitHub night sky</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>" />
+</head>
+<body>
+  <canvas id="sky"></canvas>
+
+  <header id="bar">
+    <div class="brand">✦ starfall</div>
+    <div id="live-badge" class="badge offline">● CONNECTING</div>
+    <button id="token-chip" hidden>add a token for exact counts <span id="token-chip-x" title="dismiss">×</span></button>
+    <div id="searchbox">
+      <input id="search" type="search" placeholder="search any repo…" autocomplete="off" spellcheck="false" />
+      <div id="search-results" hidden></div>
+    </div>
+    <div class="tabs" id="view-tabs">
+      <button data-view="auto" class="on">TOP TODAY</button>
+      <button data-view="live">SESSION</button>
+      <button data-view="week">RISING</button>
+      <button data-view="alltime">ALL-TIME</button>
+    </div>
+    <select id="period-filter" hidden>
+      <option value="7">last 7 days</option>
+      <option value="30">last 30 days</option>
+      <option value="90">last 3 months</option>
+      <option value="custom">since date…</option>
+    </select>
+    <input id="since-date" type="date" hidden />
+    <select id="lang-filter">
+      <option value="">all languages</option>
+      <option>Python</option><option>TypeScript</option><option>JavaScript</option>
+      <option>Rust</option><option>Go</option><option>C++</option><option>C</option>
+      <option>Java</option><option>Kotlin</option><option>Swift</option><option>Ruby</option>
+      <option>PHP</option><option>C#</option><option>Shell</option><option>HTML</option>
+      <option>CSS</option><option>Jupyter Notebook</option><option>Dart</option>
+      <option>Zig</option><option>Lua</option>
+    </select>
+    <div class="spacer"></div>
+    <div id="day-stats" class="muted"></div>
+    <div id="clock" class="mono muted"></div>
+    <button id="settings-btn" title="GitHub token settings">⚙</button>
+  </header>
+
+  <aside id="board-panel" class="glass">
+    <div class="panel-head">
+      <span class="panel-title" id="board-title">TODAY'S STARFALL</span>
+      <button id="board-toggle" title="collapse">–</button>
+    </div>
+    <div id="board-sub" class="muted"></div>
+    <div id="board"></div>
+    <div id="topics-panel">
+      <div class="panel-title small">TOPICS IN ORBIT</div>
+      <div id="topics"></div>
+    </div>
+  </aside>
+
+  <div id="left-stack">
+    <aside id="legend" class="glass">
+      <div class="panel-head">
+        <span class="panel-title small">HOW TO READ THE SKY</span>
+        <button id="legend-toggle" title="collapse">–</button>
+      </div>
+      <div id="legend-body">
+        <div class="lg-row"><span class="lg-size"><i></i><i></i><i></i></span> bigger star = more stars gained <span id="legend-sizenote" class="muted"></span></div>
+        <div class="lg-row"><span class="lg-line"></span> line = same-language constellation</div>
+        <div class="lg-row"><span class="lg-streak"></span> streak + ring = someone starred it just now</div>
+        <div class="lg-row"><span class="lg-gold"></span> gold = your repos</div>
+        <div id="legend-langs"></div>
+        <div id="legend-note" class="muted"></div>
+      </div>
+    </aside>
+    <aside id="mine-panel" class="glass" hidden>
+      <div class="panel-title small">YOUR CONSTELLATION <span id="mine-total" class="muted"></span></div>
+      <div id="mine-gazers"></div>
+    </aside>
+  </div>
+
+  <aside id="detail" class="glass" hidden>
+    <button id="detail-close" title="close">×</button>
+    <h3 id="detail-name"></h3>
+    <div id="detail-desc" class="muted"></div>
+    <div id="detail-meta"></div>
+    <div id="detail-chart"><span class="muted">crawling star history…</span></div>
+    <div id="detail-topics"></div>
+    <div class="row">
+      <a id="detail-link" class="btn" target="_blank" rel="noopener">open on github ↗</a>
+      <button id="detail-track" class="btn"></button>
+    </div>
+  </aside>
+
+  <footer id="feed">
+    <span class="panel-title small">STAR FEED</span>
+    <div id="ticker"></div>
+    <span id="events-meta" class="muted"></span>
+  </footer>
+
+  <div id="hovercard" hidden></div>
+
+  <dialog id="settings">
+    <form method="dialog">
+      <h3>GitHub token</h3>
+      <p class="muted">
+        Paste a fine-grained personal access token with <b>Public repositories (read-only)</b> access.
+        It is stored only in this browser's localStorage and sent only to api.github.com.
+        Without a token the app still works, but polls slowly and can't compute exact daily counts.
+      </p>
+      <input id="token-input" type="password" placeholder="github_pat_… or ghp_…" autocomplete="off" />
+      <div class="row">
+        <button value="save" id="token-save">Save</button>
+        <button value="clear" id="token-clear" class="danger">Clear token</button>
+        <button value="cancel">Cancel</button>
+      </div>
+      <p class="muted">Create one at github.com → Settings → Developer settings → Fine-grained tokens.</p>
+    </form>
+  </dialog>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

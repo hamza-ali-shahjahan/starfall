@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.geo-tmp/
+.env
+.env.*
+*.local
+.DS_Store
+
+.goal/
