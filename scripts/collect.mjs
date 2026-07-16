@@ -120,7 +120,7 @@ for (const [full, r] of deep) {
   const [o, n] = full.split('/')
   let cursor = r.cursor
   let capped = true
-  for (let p = 0; p < Math.min(60, pageBudget); p++) {
+  for (let p = 0; p < Math.min(80, pageBudget); p++) {
     try {
       const data = await gql(`{ repository(owner: ${JSON.stringify(o)}, name: ${JSON.stringify(n)}) {
         stargazers(last: 100, before: ${JSON.stringify(cursor)}) { edges { starredAt } pageInfo { startCursor hasPreviousPage } } } }`)
