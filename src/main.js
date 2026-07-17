@@ -120,6 +120,12 @@ async function loadSnapshot() {
       tickerSeeded = true
       for (const e of snap.recentEvents.slice(0, 10).reverse())
         pushTicker({ repo: { name: e.repo }, actor: { login: e.actor } })
+      // replay recent events as sky animations so the first minutes feel alive
+      snap.recentEvents.forEach((e, i) =>
+        setTimeout(() => {
+          if (!galaxy?.impact(e.repo, '#cfd8e6')) galaxy?.ambient()
+        }, 2000 + i * 4000),
+      )
     }
     renderView()
     renderTopics()
