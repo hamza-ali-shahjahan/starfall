@@ -170,8 +170,13 @@ for (let i = 0; i < targets.length; i += 10) {
   }
 }
 
-// ---- 5. write snapshot ----
-import { mkdirSync, writeFileSync } from 'node:fs'
+// ---- 5. write snapshot + accumulate history ----
+// Layout of the data branch (SNAPSHOT_DIR):
+//   today.json                    rolling current-day board (the app loads this)
+//   history/YYYY-MM-DD.json       overwritten all day -> freezes as the day's final board
+//   timeseries/YYYY-MM-DD.jsonl   one line per run: intra-day velocity of the top 30
+import { mkdirSync, writeFileSync, appendFileSync } from 'node:fs'
+import { join } from 'node:path'
 const rows = ranked.map(([full, r]) => ({
   full,
   count: r.count,
@@ -179,15 +184,20 @@ const rows = ranked.map(([full, r]) => ({
   total: r.total,
   ...(meta[full] || {}),
 }))
-mkdirSync('snapshot-out', { recursive: true })
-writeFileSync(
-  'snapshot-out/today.json',
+const dir = process.env.SNAPSHOT_DIR || 'snapshot-out'
+const day = since.slice(0, 10)
+const generatedAt = new Date().toISOString()
+const snapshot = JSON.stringify({ generatedAt, since, rows, recentEvents: recent.slice(0, 30) })
+mkdirSync(join(dir, 'history'), { recursive: true })
+mkdirSync(join(dir, 'timeseries'), { recursive: true })
+writeFileSync(join(dir, 'today.json'), snapshot)
+writeFileSync(join(dir, 'history', `${day}.json`), snapshot)
+appendFileSync(
+  join(dir, 'timeseries', `${day}.jsonl`),
   JSON.stringify({
-    generatedAt: new Date().toISOString(),
-    since,
-    rows,
-    recentEvents: recent.slice(0, 30),
-  }),
+    t: generatedAt,
+    rows: rows.slice(0, 30).map((r) => ({ f: r.full, c: r.count, x: r.capped ? 1 : 0 })),
+  }) + '\n',
 )
 console.log(
   `snapshot: ${rows.length} rows, top: ${rows[0]?.full} +${rows[0]?.count}${rows[0]?.capped ? '+' : ''}, page budget left ${pageBudget}`,

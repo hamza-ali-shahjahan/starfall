@@ -45,6 +45,16 @@ app runs degraded (slow polling, no exact daily counts).
 
 `npm run build` produces a static `dist/` deployable anywhere.
 
+## Data
+
+A collector workflow runs every 20 minutes and publishes to the `data` branch:
+
+- `today.json` — the current day's exact leaderboard (what the app loads; no
+  token needed to view it)
+- `history/YYYY-MM-DD.json` — each day's final top-100 board, kept forever
+- `timeseries/YYYY-MM-DD.jsonl` — intra-day star velocity of the top 30,
+  one sample per collector run
+
 ## License
 
 [MIT](LICENSE)
