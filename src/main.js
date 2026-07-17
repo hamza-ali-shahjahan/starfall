@@ -149,7 +149,10 @@ function viewSub() {
   const labels = { 7: 'the last 7 days', 30: 'the last 30 days', 90: 'the last 3 months' }
   return {
     auto: 'exact stars gained since 00:00 UTC · refreshes every 10 min',
-    live: 'star events witnessed while this sky is open',
+    // not "this session": these counts are kept for the whole UTC day (state.loadDay)
+    live: getToken()
+      ? 'stars this browser caught on the live firehose today · a sample, not a ranking'
+      : 'stars this browser caught on the live firehose today · tokenless, so it only samples one page a minute — add a token (⚙) to catch far more',
     week: `repos born ${trend.period === 'custom' ? `since ${risingSince()}` : `in ${labels[trend.period]}`} · by total stars`,
     alltime: 'the all-time most-starred repositories',
   }[trend.view]
@@ -157,7 +160,7 @@ function viewSub() {
 
 const VIEW_TITLE = {
   auto: "TODAY'S STARFALL",
-  live: 'THIS SESSION',
+  live: 'WITNESSED LIVE',
   week: 'RISING',
   alltime: 'ALL-TIME GIANTS',
 }
@@ -198,6 +201,14 @@ function renderBoard(rows) {
         ? `exact counts since 00:00 UTC · snapshot ${ago(trend.snapshotAt)}`
         : 'candidates only — first snapshot loading…'
       : viewSub()
+  if (!rows.length) {
+    $('board').innerHTML = `<div class="board-empty muted">${
+      trend.view === 'live'
+        ? 'nothing caught yet — this view fills in only as GitHub’s firehose happens to show us a star, so it starts empty and stays sparse'
+        : 'nothing to show yet'
+    }</div>`
+    return
+  }
   $('board').innerHTML = rows
     .map((r, i) => {
       const [owner, name] = r.full.split('/')
@@ -254,7 +265,7 @@ function updateSky(rows) {
 }
 
 function renderLegend() {
-  const sizeNote = { auto: '(today)', live: '(this session)', week: '(total)', alltime: '(total)' }[trend.view]
+  const sizeNote = { auto: '(today)', live: '(witnessed)', week: '(total)', alltime: '(total)' }[trend.view]
   $('legend-sizenote').textContent = sizeNote
   // count from the actual sky nodes so legend always matches cluster labels
   const counts = new Map()
@@ -289,15 +300,19 @@ function renderView() {
   $('period-filter').hidden = trend.view !== 'week'
   $('since-date').hidden = trend.view !== 'week' || trend.period !== 'custom'
 }
-$('legend-toggle').addEventListener('click', () => {
+// the whole header toggles, not just the +/- button (the button sits inside it and
+// simply bubbles up, so it keeps working without toggling twice)
+document.querySelector('#legend .panel-head').addEventListener('click', () => {
   const body = $('legend-body')
   body.hidden = !body.hidden
   $('legend-toggle').textContent = body.hidden ? '+' : '–'
+  $('legend-toggle').title = body.hidden ? 'expand' : 'collapse'
   localStorage.setItem('starfall.legend', body.hidden ? '0' : '1')
 })
 if (localStorage.getItem('starfall.legend') === '0') {
   $('legend-body').hidden = true
   $('legend-toggle').textContent = '+'
+  $('legend-toggle').title = 'expand'
 }
 
 // ---------- TOP TODAY ----------
@@ -418,10 +433,12 @@ $('since-date').addEventListener('change', () => {
   if (trend.customDate) ensureSearchView('week')
   renderView()
 })
-$('board-toggle').addEventListener('click', () => {
+document.querySelector('#board-panel .panel-head').addEventListener('click', () => {
   const p = $('board-panel')
   p.classList.toggle('collapsed')
-  $('board-toggle').textContent = p.classList.contains('collapsed') ? '+' : '–'
+  const off = p.classList.contains('collapsed')
+  $('board-toggle').textContent = off ? '+' : '–'
+  $('board-toggle').title = off ? 'expand' : 'collapse'
 })
 
 // ---------- zoom ----------
@@ -772,7 +789,7 @@ function boot() {
     onZoom: updateZoomChip,
     reservedRects() {
       const rects = []
-      for (const id of ['left-stack', 'detail', 'zoom-ctl']) {
+      for (const id of ['left-stack', 'detail']) {
         const el = $(id)
         if (el && !el.hidden) {
           const r = el.getBoundingClientRect()

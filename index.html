@@ -18,10 +18,10 @@
       <div id="search-results" hidden></div>
     </div>
     <div class="tabs" id="view-tabs">
-      <button data-view="auto" class="on">TOP TODAY</button>
-      <button data-view="live">SESSION</button>
-      <button data-view="week">RISING</button>
-      <button data-view="alltime">ALL-TIME</button>
+      <button data-view="auto" class="on" title="TOP TODAY — every repo ranked by stars gained since 00:00 UTC. Exact counts, collected server-side every 15 min. This is the main view.">TOP TODAY</button>
+      <button data-view="live" title="WITNESSED — only the stars this browser caught live on GitHub's public event firehose since you opened the page today. A tiny random sample, not a ranking: most repos here sit at +1. Add a token (⚙) to catch far more.">WITNESSED</button>
+      <button data-view="week" title="RISING — young repos, born inside the chosen window, ranked by total stars. Shows what is new rather than what is big.">RISING</button>
+      <button data-view="alltime" title="ALL-TIME — the most-starred repositories on GitHub, ever. A fixed reference view; it barely changes day to day.">ALL-TIME</button>
     </div>
     <select id="period-filter" hidden>
       <option value="7">last 7 days</option>
@@ -58,14 +58,14 @@
     </div>
   </aside>
 
-  <div id="zoom-ctl" class="glass">
-    <button id="zoom-in" title="zoom in (wheel, or double-click the sky)">+</button>
-    <button id="zoom-out" title="zoom out">–</button>
-    <button id="zoom-reset" title="reset view">⤢</button>
-    <span id="zoom-level" class="muted">1.0×</span>
-  </div>
-
   <div id="left-stack">
+    <div id="zoom-ctl" class="glass" title="Zoom the sky to read the smaller stars' names. Wheel or pinch over the sky, double-click to zoom in, drag to pan.">
+      <span class="panel-title small">ZOOM</span>
+      <button id="zoom-out" title="zoom out (− key)">–</button>
+      <span id="zoom-level" class="muted">1.0×</span>
+      <button id="zoom-in" title="zoom in (+ key, wheel, or double-click the sky)">+</button>
+      <button id="zoom-reset" title="reset view (0 key)">⤢</button>
+    </div>
     <aside id="legend" class="glass">
       <div class="panel-head">
         <span class="panel-title small">HOW TO READ THE SKY</span>

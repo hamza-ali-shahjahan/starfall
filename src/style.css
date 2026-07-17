@@ -158,7 +158,12 @@ body {
   z-index: 4;
   padding: 10px 0 0;
 }
-.panel-head { display: flex; align-items: center; justify-content: space-between; padding: 0 12px; }
+.panel-head {
+  display: flex; align-items: center; justify-content: space-between; padding: 0 12px;
+  cursor: pointer; /* the whole header collapses/expands, not just the +/- button */
+  user-select: none;
+}
+.panel-head:hover .panel-title { color: var(--gold); }
 #board-toggle {
   background: none;
   border: 1px solid var(--line);
@@ -170,6 +175,7 @@ body {
   line-height: 1;
 }
 #board-sub { padding: 4px 12px 8px; font-size: 0.72rem; }
+.board-empty { padding: 10px 12px 14px; font-size: 0.72rem; line-height: 1.5; }
 #board { overflow-y: auto; flex: 1; }
 #board::-webkit-scrollbar { width: 6px; }
 #board::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
@@ -209,17 +215,15 @@ body {
 .topic.hot { border-color: var(--gold); color: var(--gold); }
 
 /* ---------- left stack: legend + your constellation ---------- */
-/* ---------- zoom control ---------- */
+/* ---------- zoom control (sits in the left stack, above the legend) ---------- */
 #zoom-ctl {
-  position: fixed;
-  left: 12px;
-  top: calc(var(--bar-h) + 8px);
+  align-self: flex-start;
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 5px 6px;
-  z-index: 3;
+  gap: 6px;
+  padding: 5px 8px;
 }
+#zoom-ctl .panel-title { margin-right: 2px; }
 #zoom-ctl button {
   background: none;
   border: 1px solid var(--line);
