@@ -424,6 +424,25 @@ $('board-toggle').addEventListener('click', () => {
   $('board-toggle').textContent = p.classList.contains('collapsed') ? '+' : '–'
 })
 
+// ---------- zoom ----------
+// Zoom magnifies the sky only — the leaderboard, legend and topics are DOM and
+// keep their size, so zooming in is how you read the smaller stars' names.
+function updateZoomChip(z) {
+  $('zoom-level').textContent = `${z.toFixed(1)}×`
+  $('zoom-in').disabled = z >= 6
+  $('zoom-out').disabled = z <= 1
+  $('zoom-reset').disabled = z <= 1
+}
+$('zoom-in').addEventListener('click', () => galaxy?.zoomBy(1.5))
+$('zoom-out').addEventListener('click', () => galaxy?.zoomBy(1 / 1.5))
+$('zoom-reset').addEventListener('click', () => galaxy?.resetView())
+addEventListener('keydown', (ev) => {
+  if (ev.target?.matches?.('input, textarea') || $('settings').open) return
+  if (ev.key === '+' || ev.key === '=') galaxy?.zoomBy(1.5)
+  else if (ev.key === '-') galaxy?.zoomBy(1 / 1.5)
+  else if (ev.key === '0') galaxy?.resetView()
+})
+
 // ---------- topics ----------
 function renderTopics() {
   // derive from whichever today-board has data (snapshot or live observation)
@@ -750,9 +769,10 @@ function boot() {
       const p = $('board-panel')
       return p && !p.hidden && !p.classList.contains('collapsed') ? 356 : 24
     },
+    onZoom: updateZoomChip,
     reservedRects() {
       const rects = []
-      for (const id of ['left-stack', 'detail']) {
+      for (const id of ['left-stack', 'detail', 'zoom-ctl']) {
         const el = $(id)
         if (el && !el.hidden) {
           const r = el.getBoundingClientRect()
@@ -772,6 +792,7 @@ function boot() {
   renderClock()
   renderView()
   renderTopics()
+  updateZoomChip(galaxy.getZoom())
   $('ticker').innerHTML = `<div class="ev placeholder">listening for star events…</div>`
   updateTokenChip()
   tick()

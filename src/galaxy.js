@@ -3,7 +3,7 @@
 // force simulation; live star events arrive as shooting stars that flare
 // their target. Plain canvas, no dependencies.
 
-export function createGalaxy(canvas, { onHover, onClick, rightGutter = () => 20, reservedRects = () => [] }) {
+export function createGalaxy(canvas, { onHover, onClick, onZoom, rightGutter = () => 20, reservedRects = () => [] }) {
   const ctx = canvas.getContext('2d')
   let W = 0
   let H = 0
@@ -16,10 +16,67 @@ export function createGalaxy(canvas, { onHover, onClick, rightGutter = () => 20,
   const bgStars = []
   let hovered = null
 
+  // The layout cools like d3-force: forces scale with alpha, alpha decays to
+  // zero, then stepping stops entirely and stars stay put so they're clickable.
+  // Only a genuine layout change (new/removed stars, moved anchors, resize,
+  // panels opening) reheats it — count/radius updates on every poll must not.
+  const FIXED_DT = 16.7 // sim runs on a fixed step; frame rate must not change physics
+  const ALPHA_DECAY = 0.022 // ~300 steps (~5s) to cool
+  const ALPHA_MIN = 0.004
+  let alpha = 1
+  let settled = false
+
+  function reheat(a = 1) {
+    alpha = Math.max(alpha, a)
+    settled = false
+  }
+
+  // Zoom is view-only: the sim always runs in unzoomed world coords, so magnifying
+  // a constellation to read its names never disturbs the settled layout. Only the
+  // canvas scales — the leaderboard and legend are DOM and stay put.
+  const ZOOM_MIN = 1
+  const ZOOM_MAX = 6
+  let zoom = 1
+  let panX = 0
+  let panY = 0
+  const toScreenX = (x) => x * zoom + panX
+  const toScreenY = (y) => y * zoom + panY
+
+  // Keep the field covering the viewport so it can't be dragged into empty space.
+  function clampPan() {
+    panX = Math.min(0, Math.max(W - W * zoom, panX))
+    panY = Math.min(0, Math.max(H - H * zoom, panY))
+  }
+
+  // Zoom about a screen point so the star under the cursor stays under the cursor.
+  function zoomAt(sx, sy, factor) {
+    const next = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom * factor))
+    if (next === zoom) return
+    const wx = (sx - panX) / zoom
+    const wy = (sy - panY) / zoom
+    zoom = next
+    panX = sx - wx * zoom
+    panY = sy - wy * zoom
+    clampPan()
+    onZoom?.(zoom)
+  }
+
+  function resetView() {
+    zoom = 1
+    panX = 0
+    panY = 0
+    onZoom?.(zoom)
+  }
+
   function resize() {
-    W = canvas.clientWidth
-    H = canvas.clientHeight
-    if (!W || !H) return
+    const w = canvas.clientWidth
+    const h = canvas.clientHeight
+    if (!w || !h) return
+    // ResizeObserver also fires with unchanged dimensions; only a real size change
+    // moves the anchors, and only that is worth waking the sim back up for.
+    const dimsChanged = w !== W || h !== H
+    W = w
+    H = h
     canvas.width = W * dpr
     canvas.height = H * dpr
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
@@ -33,6 +90,8 @@ export function createGalaxy(canvas, { onHover, onClick, rightGutter = () => 20,
         })
     layoutAnchors()
     placePending()
+    clampPan() // a resized viewport can leave the pan out of bounds
+    if (dimsChanged) reheat()
   }
 
   function placePending() {
@@ -67,18 +126,33 @@ export function createGalaxy(canvas, { onHover, onClick, rightGutter = () => 20,
     anchors.set('@you', { x: Math.max(80, usableW * 0.14), y: H * 0.74 })
   }
 
+  const anchorKey = () =>
+    [...anchors].map(([c, a]) => `${c}:${a.x.toFixed(0)},${a.y.toFixed(0)}`).join('|')
+
   // list: [{id, r, color, cluster, label, gold, meta}]
   function setNodes(list) {
     const keep = new Set()
+    let changed = false // membership or cluster moved — a pure count/radius tick must not reheat
     for (const d of list) {
       keep.add(d.id)
       const ex = nodes.get(d.id)
-      if (ex) Object.assign(ex, d)
-      else nodes.set(d.id, { ...d, x: 0, y: 0, vx: 0, vy: 0, born: perf(), placed: false })
+      if (ex) {
+        if (ex.cluster !== d.cluster) changed = true
+        Object.assign(ex, d)
+      } else {
+        nodes.set(d.id, { ...d, x: 0, y: 0, vx: 0, vy: 0, born: perf(), placed: false })
+        changed = true
+      }
     }
-    for (const id of [...nodes.keys()]) if (!keep.has(id)) nodes.delete(id)
+    for (const id of [...nodes.keys()])
+      if (!keep.has(id)) {
+        nodes.delete(id)
+        changed = true
+      }
+    const anchorsBefore = anchorKey()
     layoutAnchors()
     placePending()
+    if (changed || anchorKey() !== anchorsBefore) reheat()
   }
 
   function impact(id, color) {
@@ -99,9 +173,37 @@ export function createGalaxy(canvas, { onHover, onClick, rightGutter = () => 20,
   const perf = () => performance.now()
   let last = perf()
   let cachedRects = []
+  let cachedRectKey = ''
   let lastRectRefresh = 0
+  let lastGutter = null
+  let layoutSeen = false
+  let acc = 0
 
-  function step(dt) {
+  // Panels opening/closing and the board collapsing move stars, so this has to run
+  // every frame even once the sim is asleep — otherwise a settled sky could never
+  // notice a panel appeared on top of it.
+  function watchLayout() {
+    if (perf() - lastRectRefresh > 500) {
+      const next = reservedRects()
+      const key = next.map((r) => `${r.x | 0},${r.y | 0},${r.w | 0},${r.h | 0}`).join('|')
+      if (layoutSeen && key !== cachedRectKey) reheat(0.5)
+      cachedRectKey = key
+      cachedRects = next
+      lastRectRefresh = perf()
+    }
+    const gutter = rightGutter()
+    if (gutter !== lastGutter) {
+      if (layoutSeen) reheat(0.5)
+      lastGutter = gutter
+    }
+    layoutSeen = true
+  }
+
+  // One fixed-size sim step. Never takes a frame delta: forces used to scale with
+  // dt while damping and integration did not, so a slower frame injected energy it
+  // never dissipated — at 30fps that made stars wander hundreds of px and never
+  // settle, while a 120Hz display hid it completely.
+  function step() {
     if (!W || !H) {
       resize()
       return
@@ -109,8 +211,8 @@ export function createGalaxy(canvas, { onHover, onClick, rightGutter = () => 20,
     const arr = [...nodes.values()].filter((n) => n.placed)
     for (const n of arr) {
       const a = anchors.get(n.cluster) || { x: W / 2, y: H / 2 }
-      n.vx += (a.x - n.x) * 0.0009 * dt
-      n.vy += (a.y - n.y) * 0.0009 * dt
+      n.vx += (a.x - n.x) * 0.0009 * FIXED_DT * alpha
+      n.vy += (a.y - n.y) * 0.0009 * FIXED_DT * alpha
     }
     for (let i = 0; i < arr.length; i++)
       for (let j = i + 1; j < arr.length; j++) {
@@ -119,16 +221,12 @@ export function createGalaxy(canvas, { onHover, onClick, rightGutter = () => 20,
         const dist = Math.hypot(dx, dy) || 1
         const min = a.r + b.r + 22
         if (dist < min) {
-          const f = ((min - dist) / dist) * 0.06 * dt
+          const f = ((min - dist) / dist) * 0.06 * FIXED_DT * alpha
           a.vx -= dx * f; a.vy -= dy * f
           b.vx += dx * f; b.vy += dy * f
         }
       }
     // soft repulsion out of DOM panel zones (legend, detail) so stars stay clickable
-    if (perf() - lastRectRefresh > 500) {
-      cachedRects = reservedRects()
-      lastRectRefresh = perf()
-    }
     for (const n of arr)
       for (const r of cachedRects) {
         if (n.x < r.x - n.r || n.x > r.x + r.w + n.r || n.y < r.y - n.r || n.y > r.y + r.h + n.r)
@@ -138,24 +236,34 @@ export function createGalaxy(canvas, { onHover, onClick, rightGutter = () => 20,
         const exitDown = r.y + r.h + n.r - n.y
         const exitUp = n.y - (r.y - n.r)
         const min = Math.min(exitLeft, exitRight, exitUp, exitDown)
-        const push = 0.08 * dt
+        const push = 0.08 * FIXED_DT * alpha
         if (min === exitRight) n.vx += push
         else if (min === exitLeft) n.vx -= push
         else if (min === exitDown) n.vy += push
         else n.vy -= push
       }
 
-    const gutter = rightGutter()
+    const gutter = lastGutter ?? rightGutter()
     for (const n of arr) {
       n.vx *= 0.86; n.vy *= 0.86
       n.x += n.vx; n.y += n.vy
+      // clamping position without killing velocity let stars grind along the edge
       const m = n.r + 10
-      n.x = Math.max(m + 6, Math.min(W - gutter - m, n.x))
-      n.y = Math.max(64 + m, Math.min(H - 48 - m - 16, n.y))
+      const loX = m + 6, hiX = W - gutter - m
+      const loY = 64 + m, hiY = H - 48 - m - 16
+      if (n.x < loX) { n.x = loX; n.vx = 0 } else if (n.x > hiX) { n.x = hiX; n.vx = 0 }
+      if (n.y < loY) { n.y = loY; n.vy = 0 } else if (n.y > hiY) { n.y = hiY; n.vy = 0 }
+    }
+
+    alpha += (0 - alpha) * ALPHA_DECAY
+    if (alpha < ALPHA_MIN) {
+      alpha = 0
+      settled = true
+      for (const n of arr) { n.vx = 0; n.vy = 0 } // freeze: no creep, stars stay clickable
     }
   }
 
-  function draw(now) {
+  function draw(now, frameDt = FIXED_DT) {
     ctx.clearRect(0, 0, W, H)
     const t = now / 1000
     for (const s of bgStars) {
@@ -195,8 +303,8 @@ export function createGalaxy(canvas, { onHover, onClick, rightGutter = () => 20,
           ctx.globalAlpha = n.gold ? 0.3 : 0.12
           ctx.strokeStyle = n.color
           ctx.beginPath()
-          ctx.moveTo(n.x, n.y)
-          ctx.lineTo(best.x, best.y)
+          ctx.moveTo(toScreenX(n.x), toScreenY(n.y))
+          ctx.lineTo(toScreenX(best.x), toScreenY(best.y))
           ctx.stroke()
         }
       }
@@ -205,36 +313,39 @@ export function createGalaxy(canvas, { onHover, onClick, rightGutter = () => 20,
 
     for (const n of arr) {
       const tw = 0.85 + 0.15 * Math.sin(t * 1.7 + n.x)
+      const sx = toScreenX(n.x), sy = toScreenY(n.y), sr = n.r * zoom
       ctx.globalAlpha = 0.09
       ctx.fillStyle = n.color
       ctx.beginPath()
-      ctx.arc(n.x, n.y, n.r * 2.1, 0, 6.29)
+      ctx.arc(sx, sy, sr * 2.1, 0, 6.29)
       ctx.fill()
       ctx.globalAlpha = 0.95 * tw
       ctx.beginPath()
-      ctx.arc(n.x, n.y, n.r, 0, 6.29)
+      ctx.arc(sx, sy, sr, 0, 6.29)
       ctx.fill()
       ctx.globalAlpha = 1
       if (n === hovered) {
         ctx.strokeStyle = '#d8dee9'
         ctx.beginPath()
-        ctx.arc(n.x, n.y, n.r + 4, 0, 6.29)
+        ctx.arc(sx, sy, sr + 4, 0, 6.29)
         ctx.stroke()
       }
     }
 
-    // greedy label pass: hovered > gold > biggest; skip anything that collides
+    // greedy label pass: hovered > gold > biggest; skip anything that collides.
+    // Text stays a fixed screen size, and the threshold is on the ON-SCREEN radius,
+    // so zooming in is what reveals the smaller stars' names.
     ctx.font = '11px ui-monospace, monospace'
     ctx.lineWidth = 3
     ctx.strokeStyle = '#070910'
     const wantLabel = arr
-      .filter((n) => n.r >= 11 || n.gold || n === hovered)
+      .filter((n) => n.r * zoom >= 11 || n.gold || n === hovered)
       .sort((a, b) => (b === hovered) - (a === hovered) || b.gold - a.gold || b.r - a.r)
     for (const n of wantLabel) {
       const label = n.label + (n.count ? ` ${n.count}` : '')
       const w = ctx.measureText(label).width
-      const x = n.x - w / 2
-      const y = n.y + n.r + 4
+      const x = toScreenX(n.x) - w / 2
+      const y = toScreenY(n.y) + n.r * zoom + 4
       if (!fits(x, y, w, 13) && n !== hovered) continue
       ctx.strokeText(label, x, y + 11)
       ctx.fillStyle = n.gold ? '#e8b33d' : '#93a4bd'
@@ -250,8 +361,8 @@ export function createGalaxy(canvas, { onHover, onClick, rightGutter = () => 20,
         if (!a) continue
         const label = `${c.toUpperCase()} · ${list.length}`
         const w = ctx.measureText(label).width
-        const x = a.x - w / 2
-        const y = a.y - 14
+        const x = toScreenX(a.x) - w / 2
+        const y = toScreenY(a.y) - 14
         if (!fits(x, y, w, 12)) continue
         ctx.strokeText(label, x, y + 10)
         ctx.fillStyle = '#7d8db0'
@@ -270,7 +381,7 @@ export function createGalaxy(canvas, { onHover, onClick, rightGutter = () => 20,
 
     for (let i = shots.length - 1; i >= 0; i--) {
       const s = shots[i]
-      s.t += 16.7
+      s.t += frameDt
       const k = Math.min(1, s.t / s.dur)
       const target = s.ambient ? { x: s.x1, y: s.y1 } : nodes.get(s.id)
       if (!target) { shots.splice(i, 1); continue }
@@ -282,8 +393,8 @@ export function createGalaxy(canvas, { onHover, onClick, rightGutter = () => 20,
       ctx.strokeStyle = s.color
       ctx.lineWidth = 1.4
       ctx.beginPath()
-      ctx.moveTo(tx, ty)
-      ctx.lineTo(hx, hy)
+      ctx.moveTo(toScreenX(tx), toScreenY(ty))
+      ctx.lineTo(toScreenX(hx), toScreenY(hy))
       ctx.stroke()
       ctx.lineWidth = 1
       ctx.globalAlpha = 1
@@ -295,14 +406,14 @@ export function createGalaxy(canvas, { onHover, onClick, rightGutter = () => 20,
 
     for (let i = flares.length - 1; i >= 0; i--) {
       const f = flares[i]
-      f.t += 16.7
+      f.t += frameDt
       const k = f.t / 700
       const n = nodes.get(f.id)
       if (!n || k >= 1) { flares.splice(i, 1); continue }
       ctx.globalAlpha = 0.8 * (1 - k)
       ctx.strokeStyle = f.color
       ctx.beginPath()
-      ctx.arc(n.x, n.y, n.r + 2 + k * 26, 0, 6.29)
+      ctx.arc(toScreenX(n.x), toScreenY(n.y), (n.r + 2 + k * 26) * zoom, 0, 6.29)
       ctx.stroke()
       ctx.globalAlpha = 1
     }
@@ -310,28 +421,72 @@ export function createGalaxy(canvas, { onHover, onClick, rightGutter = () => 20,
 
   function loop() {
     const now = perf()
-    const dt = Math.min(40, now - last)
+    const frameDt = Math.min(100, now - last)
     last = now
-    step(dt)
-    draw(now)
+    watchLayout()
+    // Fixed-step accumulator: 120Hz runs a step every other frame, 30Hz runs four
+    // per frame, so the layout is identical on any display instead of only being
+    // stable above ~90fps. Capped so a stalled tab can't spiral on resume.
+    if (!settled) {
+      acc = Math.min(acc + frameDt, FIXED_DT * 5)
+      while (acc >= FIXED_DT) {
+        step()
+        acc -= FIXED_DT
+      }
+    } else {
+      acc = 0
+      if (!W || !H) resize()
+    }
+    draw(now, frameDt)
     requestAnimationFrame(loop)
   }
   requestAnimationFrame(loop)
 
-  function nodeAt(ev) {
+  const screenOf = (ev) => {
     const rect = canvas.getBoundingClientRect()
-    const x = ev.clientX - rect.left
-    const y = ev.clientY - rect.top
+    return { sx: ev.clientX - rect.left, sy: ev.clientY - rect.top }
+  }
+
+  function nodeAt(ev) {
+    const { sx, sy } = screenOf(ev)
+    // hit-test in world space, but with a screen-constant grab margin, so stars
+    // stay exactly as easy to click at any zoom
+    const x = (sx - panX) / zoom
+    const y = (sy - panY) / zoom
     let best = null, bd = 1e9
     for (const n of nodes.values()) {
       const d = Math.hypot(n.x - x, n.y - y)
-      if (d < n.r + 6 && d < bd) { bd = d; best = n }
+      if (d < n.r + 6 / zoom && d < bd) { bd = d; best = n }
     }
     return best
   }
+
+  let drag = null
+  let panned = false // set on mouseup, consumed by the click that follows it
+  canvas.addEventListener('mousedown', (ev) => {
+    panned = false
+    if (nodeAt(ev)) return // let clicks on a star through
+    const { sx, sy } = screenOf(ev)
+    drag = { sx, sy, panX, panY, moved: false }
+    canvas.style.cursor = 'grabbing'
+  })
+  addEventListener('mouseup', () => {
+    panned = !!drag?.moved
+    drag = null
+    canvas.style.cursor = hovered ? 'pointer' : zoom > 1 ? 'grab' : 'default'
+  })
   canvas.addEventListener('mousemove', (ev) => {
+    if (drag) {
+      const { sx, sy } = screenOf(ev)
+      if (Math.hypot(sx - drag.sx, sy - drag.sy) > 3) drag.moved = true
+      panX = drag.panX + (sx - drag.sx)
+      panY = drag.panY + (sy - drag.sy)
+      clampPan()
+      onHover?.(null, 0, 0)
+      return
+    }
     hovered = nodeAt(ev)
-    canvas.style.cursor = hovered ? 'pointer' : 'grab'
+    canvas.style.cursor = hovered ? 'pointer' : zoom > 1 ? 'grab' : 'default'
     onHover?.(hovered, ev.clientX, ev.clientY)
   })
   canvas.addEventListener('mouseleave', () => {
@@ -339,11 +494,39 @@ export function createGalaxy(canvas, { onHover, onClick, rightGutter = () => 20,
     onHover?.(null, 0, 0)
   })
   canvas.addEventListener('click', (ev) => {
+    if (panned) return // releasing a pan over a star is not a click on it
     const n = nodeAt(ev)
     if (n) onClick?.(n)
   })
+  // wheel and trackpad pinch (which arrives as ctrl+wheel) both zoom the sky
+  canvas.addEventListener(
+    'wheel',
+    (ev) => {
+      ev.preventDefault()
+      const { sx, sy } = screenOf(ev)
+      zoomAt(sx, sy, Math.exp(-ev.deltaY * (ev.ctrlKey ? 0.01 : 0.0015)))
+    },
+    { passive: false },
+  )
+  canvas.addEventListener('dblclick', (ev) => {
+    const { sx, sy } = screenOf(ev)
+    zoomAt(sx, sy, 1.8)
+  })
 
-  if (import.meta.env.DEV) window.__galaxy = { nodes, anchors, dims: () => ({ W, H }) }
+  if (import.meta.env.DEV)
+    window.__galaxy = {
+      nodes, anchors,
+      dims: () => ({ W, H }),
+      sim: () => ({ alpha, settled }),
+      view: () => ({ zoom, panX, panY }),
+    }
 
-  return { setNodes, impact, ambient, count: () => nodes.size }
+  return {
+    setNodes, impact, ambient,
+    count: () => nodes.size,
+    // zoom about the middle of the visible sky, left of the leaderboard
+    zoomBy: (f) => zoomAt((W - rightGutter()) / 2, H / 2, f),
+    resetView,
+    getZoom: () => zoom,
+  }
 }
