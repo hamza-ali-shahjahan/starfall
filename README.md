@@ -1,4 +1,5 @@
 # starfall
+[![built with Hamzaish](https://img.shields.io/badge/built_with-Hamzaish-d97757.svg)](https://github.com/hamza-ali-shahjahan/hamzaish)
 
 **Live**: [hamza-ali-shahjahan.github.io/starfall](https://hamza-ali-shahjahan.github.io/starfall/)
 
@@ -54,6 +55,10 @@ A collector workflow runs every 20 minutes and publishes to the `data` branch:
 - `history/YYYY-MM-DD.json` — each day's final top-100 board, kept forever
 - `timeseries/YYYY-MM-DD.jsonl` — intra-day star velocity of the top 30,
   one sample per collector run
+
+## Built with Hamzaish
+
+starfall was built inside [Hamzaish](https://github.com/hamza-ali-shahjahan/hamzaish) — an open agentic startup-factory OS for Claude Code that builds, launches, and learns across a product's whole life — and ships as one of its public tools.
 
 ## License
 
